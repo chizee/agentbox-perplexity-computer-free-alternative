@@ -1,0 +1,15 @@
+{
+  "name": "agentbox-manager",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "dockerode": "^4.0.3",
+    "express": "^4.21.0",
+    "http-proxy-middleware": "^3.0.3",
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "zod": "^3.23.0"
+  }
+}
