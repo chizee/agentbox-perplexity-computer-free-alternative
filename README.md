@@ -66,7 +66,3 @@ Open http://localhost:3000 and start chatting.
 ## Environment
 
 The app uses OpenRouter for LLM access. Get a key at https://openrouter.ai and put it in `app/.env.local`.
-
-## License
-
-MIT
