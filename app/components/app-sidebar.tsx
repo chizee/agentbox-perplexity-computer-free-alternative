@@ -7,8 +7,11 @@ import {
   FolderIcon,
   ListTodoIcon,
   RocketIcon,
+  SunIcon,
+  MoonIcon,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useTheme } from "@/lib/theme";
 
 function SidebarButton({
   icon: Icon,
@@ -96,6 +99,38 @@ export function AppSidebar() {
         isActive={isActive("/deployments")}
         onClick={() => router.push("/deployments")}
       />
+
+      <div className="my-2 h-px w-6 bg-border/50" />
+
+      {/* Theme Toggle */}
+      <ThemeToggle />
     </div>
+  );
+}
+
+function ThemeToggle() {
+  const { theme, toggleTheme } = useTheme();
+
+  return (
+    <Tooltip>
+      <TooltipTrigger>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={toggleTheme}
+          onKeyDown={(e) => { if (e.key === "Enter") toggleTheme(); }}
+          className="flex size-10 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+        >
+          {theme === "dark" ? (
+            <SunIcon className="size-5" />
+          ) : (
+            <MoonIcon className="size-5" />
+          )}
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="right" sideOffset={8}>
+        {theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+      </TooltipContent>
+    </Tooltip>
   );
 }
