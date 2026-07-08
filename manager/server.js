@@ -18,6 +18,13 @@ const DEPLOYMENT_IMAGES = {
 const NETWORK_NAME = 'agentbox-net';
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
+// Docker volume name: letters/digits/underscore/dot/dash, must start alphanumeric.
+// Rejects host paths (/, :, ..) so a malicious client can't bind-mount host dirs.
+const VOLUME_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{1,254}$/;
+function isValidVolumeName(name) {
+  return typeof name === 'string' && VOLUME_NAME_RE.test(name);
+}
+
 async function pullImageIfMissing(image) {
   try {
     await docker.getImage(image).inspect();
@@ -87,10 +94,12 @@ async function waitForHealthUrl(baseUrl, retries = 30) {
 app.post('/sandboxes', async (req, res) => {
   try {
     const type = req.body.type || 'browser';
-    const workspace = req.body.workspace || null;
     const volume = req.body.volume || null;
     const image = SANDBOX_IMAGES[type];
     if (!image) return res.status(400).json({ error: `Invalid type: ${type}. Use "browser" or "shell"` });
+    if (volume !== null && !isValidVolumeName(volume)) {
+      return res.status(400).json({ error: 'Invalid volume name' });
+    }
 
     await ensureNetwork();
 
@@ -108,8 +117,6 @@ app.post('/sandboxes', async (req, res) => {
 
     if (volume) {
       containerConfig.HostConfig.Binds.push(`${volume}:${MOUNT_TARGET}`);
-    } else if (workspace) {
-      containerConfig.HostConfig.Binds.push(`${workspace}:${MOUNT_TARGET}`);
     }
 
     if (isBrowser) {
@@ -133,7 +140,7 @@ app.post('/sandboxes', async (req, res) => {
     const sb = {
       container,
       type,
-      workspace: workspace || null,
+      volume: volume || null,
       internalApiUrl,
       novncPort: novncPort ? parseInt(novncPort) : null,
       createdAt: Date.now(),
@@ -150,7 +157,7 @@ app.post('/sandboxes', async (req, res) => {
     }
 
     const result = { id, type };
-    if (workspace) result.workspace = `/workspace`;
+    if (volume) result.workspace = MOUNT_TARGET;
     if (novncPort) result.ports = { novnc: parseInt(novncPort) };
 
     console.log(`Sandbox ${id} (${type}) created — internal: ${internalApiUrl}${novncPort ? `, noVNC: ${novncPort}` : ''}`);
@@ -219,6 +226,7 @@ app.post('/deployments', async (req, res) => {
     const image = DEPLOYMENT_IMAGES[type];
     if (!image) return res.status(400).json({ error: `Invalid type: ${type}` });
     if (!volume) return res.status(400).json({ error: 'volume required' });
+    if (!isValidVolumeName(volume)) return res.status(400).json({ error: 'Invalid volume name' });
 
     const portList = Array.isArray(ports) && ports.length > 0 ? ports : [8080];
     const mainPort = portList[0];
