@@ -18,6 +18,23 @@ const DEPLOYMENT_IMAGES = {
 const NETWORK_NAME = 'agentbox-net';
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
+// Capabilities are dropped wholesale and only these are handed back: enough for
+// the image entrypoint to fix the mounted volume's ownership (CHOWN/DAC_OVERRIDE/
+// FOWNER) and drop to the unprivileged user (SETUID/SETGID). Once it has dropped
+// privileges the workload itself holds no capabilities at all.
+//
+// Notably absent: SYS_ADMIN. Chromium already launches with --no-sandbox, so it
+// never needed the one capability most associated with container escapes.
+const REQUIRED_CAPS = ['CHOWN', 'DAC_OVERRIDE', 'FOWNER', 'SETUID', 'SETGID'];
+
+/** Capability + privilege-escalation hardening applied to every spawned container. */
+function securityHardening() {
+  return {
+    CapDrop: ['ALL'],
+    CapAdd: [...REQUIRED_CAPS],
+    SecurityOpt: ['no-new-privileges'],
+  };
+}
 // Resource caps for spawned containers. These run code an LLM just wrote, so an
 // infinite loop, a memory balloon or a fork bomb is an ordinary Tuesday — without
 // limits any of them takes the host down with it.
@@ -148,6 +165,7 @@ app.post('/sandboxes', async (req, res) => {
       HostConfig: {
         NetworkMode: NETWORK_NAME,
         Binds: [],
+        ...securityHardening(),
         ...(isBrowser
           ? resourceLimits(BROWSER_MEMORY_MB, BROWSER_CPUS, BROWSER_PIDS_LIMIT)
           : resourceLimits(SANDBOX_MEMORY_MB, SANDBOX_CPUS, SANDBOX_PIDS_LIMIT)),
@@ -161,7 +179,7 @@ app.post('/sandboxes', async (req, res) => {
     }
 
     if (isBrowser) {
-      containerConfig.HostConfig.CapAdd = ['SYS_ADMIN'];
+      // No SYS_ADMIN: Chromium runs with --no-sandbox, verified working without it.
       containerConfig.HostConfig.ShmSize = 2 * 1024 * 1024 * 1024;
       containerConfig.ExposedPorts['6080/tcp'] = {};
       // Empty HostPort => Docker picks a free port, as before.
@@ -309,6 +327,7 @@ app.post('/deployments', async (req, res) => {
         Binds: [`${volume}:/workspace`],
         PortBindings: portBindings,
         NetworkMode: NETWORK_NAME,
+        ...securityHardening(),
         ...resourceLimits(DEPLOYMENT_MEMORY_MB, DEPLOYMENT_CPUS, DEPLOYMENT_PIDS_LIMIT),
       },
       Labels: { 'agentbox.deployment': 'true' },
