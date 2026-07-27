@@ -18,6 +18,36 @@ const DEPLOYMENT_IMAGES = {
 const NETWORK_NAME = 'agentbox-net';
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
+// Resource caps for spawned containers. These run code an LLM just wrote, so an
+// infinite loop, a memory balloon or a fork bomb is an ordinary Tuesday — without
+// limits any of them takes the host down with it.
+const MB = 1024 * 1024;
+const num = (v, fallback) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : fallback);
+
+const SANDBOX_MEMORY_MB = num(process.env.SANDBOX_MEMORY_MB, 1024);
+// Chromium is heavy and its /dev/shm counts against the container's memory
+// cgroup, so browser sandboxes get a higher ceiling than shell ones.
+const BROWSER_MEMORY_MB = num(process.env.BROWSER_MEMORY_MB, 3072);
+const SANDBOX_CPUS = num(process.env.SANDBOX_CPUS, 1);
+const BROWSER_CPUS = num(process.env.BROWSER_CPUS, 2);
+const SANDBOX_PIDS_LIMIT = num(process.env.SANDBOX_PIDS_LIMIT, 256);
+const BROWSER_PIDS_LIMIT = num(process.env.BROWSER_PIDS_LIMIT, 512);
+const DEPLOYMENT_MEMORY_MB = num(process.env.DEPLOYMENT_MEMORY_MB, 512);
+const DEPLOYMENT_CPUS = num(process.env.DEPLOYMENT_CPUS, 1);
+const DEPLOYMENT_PIDS_LIMIT = num(process.env.DEPLOYMENT_PIDS_LIMIT, 128);
+
+/**
+ * Docker resource limits. MemorySwap === Memory disables swap, so a container
+ * that hits its ceiling is OOM-killed instead of dragging the host into swap.
+ */
+function resourceLimits(memoryMb, cpus, pidsLimit) {
+  return {
+    Memory: memoryMb * MB,
+    MemorySwap: memoryMb * MB,
+    NanoCpus: Math.round(cpus * 1e9),
+    PidsLimit: pidsLimit,
+  };
+}
 // Host interface published container ports bind to. Defaults to loopback so
 // sandboxes and deployments are not reachable from the rest of the network.
 // Set BIND_HOST=0.0.0.0 only if you deliberately want LAN access.
@@ -118,6 +148,9 @@ app.post('/sandboxes', async (req, res) => {
       HostConfig: {
         NetworkMode: NETWORK_NAME,
         Binds: [],
+        ...(isBrowser
+          ? resourceLimits(BROWSER_MEMORY_MB, BROWSER_CPUS, BROWSER_PIDS_LIMIT)
+          : resourceLimits(SANDBOX_MEMORY_MB, SANDBOX_CPUS, SANDBOX_PIDS_LIMIT)),
         PortBindings: {},
       },
       ExposedPorts: { '8080/tcp': {} },
@@ -276,6 +309,7 @@ app.post('/deployments', async (req, res) => {
         Binds: [`${volume}:/workspace`],
         PortBindings: portBindings,
         NetworkMode: NETWORK_NAME,
+        ...resourceLimits(DEPLOYMENT_MEMORY_MB, DEPLOYMENT_CPUS, DEPLOYMENT_PIDS_LIMIT),
       },
       Labels: { 'agentbox.deployment': 'true' },
     });
